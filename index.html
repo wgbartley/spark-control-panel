@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Outdoor Lights</title>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+<script src="//ajax.googleapis.com/ajax/libs/jquerymobile/1.4.2/jquery.mobile.min.js"></script>
+<link rel="stylesheet" href="//ajax.googleapis.com/ajax/libs/jquerymobile/1.4.2/jquery.mobile.min.css" />
+
+<script src="javascript-relative-time-helpers/date.extensions.js"></script>
+
+<script type="text/javascript">
+var statusUpdateInterval = 5000;
+var lastStatus = '';
+
+// jQuery mobile page init
+$(document).on('pagecreate', function() {
+	show_load();
+
+	updateStatuses();
+});
+
+
+function updateStatuses() {
+	$.get('/v1/devices', function(resp) {
+		hide_load();
+
+		var html = '<div><ul data-role="listview" data-filter="false" data-inset="true">';
+		var icon = '';
+		var bgcolor = '';
+		var label = '';
+		var d;
+
+		if(JSON.stringify(resp)!=lastStatus) {
+			for(var i in resp) {
+				if(resp[i].connected==true) {
+					icon = 'check';
+					bgcolor = '#005500';
+				} else {
+					icon = 'minus';
+					bgcolor = '#770000';
+				}
+
+				label = '<h2>'+resp[i].name+'</h2>';
+
+				if(resp[i].last_heard!=null) {
+					d = new Date(resp[i].last_heard);
+					label += '<p>Last seen '+d.toRelativeTime().toLowerCase()+'</p>';
+					//label += ' ('+d.toLocaleString()+')</p>';
+				}
+
+				html += '<li data-icon="'+icon+'"><a href="#" style="background:'+bgcolor+'">'+label+'</a></li>';
+			}
+
+			html += '</ul></div>';
+
+			$('#list').html($(html).enhanceWithin());
+
+			lastStatus = JSON.stringify(resp);
+		}
+
+		$('div[data-role="footer"] h4').html('Last updated @ '+(new Date()).toLocaleTimeString());
+
+		window.setTimeout(updateStatuses, statusUpdateInterval);
+	});
+}
+
+
+// Shortcut for $.mobile.loading.('show', ...)
+function show_load() {
+	$.mobile.loading('show', {
+		textonly: false,
+		textvisible: false,
+		msgtext: '',
+		html: ''
+	});
+}
+
+
+// Shortcut for $.mobile.loading('hide');
+function hide_load() {
+	$.mobile.loading('hide');
+}
+</script>
+
+</head>
+<body>
+
+<div data-role="page" data-theme="b">
+	<!-- Header -->
+	<div data-role="header" data-position="fixed">
+		<h1>Control Panel</h1>
+
+		<!-- Refresh button -->
+		<button class="ui-btn-right ui-btn ui-btn-b ui-btn-inline ui-mini ui-corner-all ui-btn-icon-right ui-icon-refresh ui-btn-icon-notext" onclick="window.location.reload()"></button>
+	</div>
+
+	<!-- Main content body -->
+	<div role="main" class="ui-content">
+
+		<!-- Relay buttons -->
+		<!-- <button id="outlet2" data-outlet="2">Deck Lights</button> -->
+
+		<div id="list">
+			<ul data-role="listview" data-filter="false" data-inset="true">
+				<li>Loading . . .</li>
+			</ul>
+		</div>
+
+	</div>
+
+	<!-- Footer -->
+	<div data-role="footer" data-position="fixed"><h4>...</h4></div>
+</div>
+
+</body>
+</html>
