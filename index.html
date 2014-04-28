@@ -14,10 +14,12 @@
 <link rel="stylesheet" href="//ajax.googleapis.com/ajax/libs/jquerymobile/1.4.2/jquery.mobile.min.css" />
 
 <script src="javascript-relative-time-helpers/date.extensions.js"></script>
+<script src="json_formatter.js"></script>
 
 <script type="text/javascript">
-var statusUpdateInterval = 5000;
-var lastStatus = '';
+var statusUpdateInterval = 15000;
+var lastStatus = {};
+var lastFunctionInfo = {};
 
 // jQuery mobile page init
 $(document).on('pagecreate', function() {
@@ -31,13 +33,18 @@ function updateStatuses() {
 	$.get('/v1/devices', function(resp) {
 		hide_load();
 
-		var html = '<div><ul data-role="listview" data-filter="false" data-inset="true">';
+		var filter = 'false';
+
+		if(resp.length>5)
+			filter = 'true';
+
+		var html = '<div><ul data-role="listview" data-filter="'+filter+'" data-inset="true">';
 		var icon = '';
 		var bgcolor = '';
 		var label = '';
 		var d;
 
-		if(JSON.stringify(resp)!=lastStatus) {
+		if(JSON.stringify(resp)!=JSON.stringify(lastStatus)) {
 			for(var i in resp) {
 				if(resp[i].connected==true) {
 					icon = 'check';
@@ -55,19 +62,143 @@ function updateStatuses() {
 					//label += ' ('+d.toLocaleString()+')</p>';
 				}
 
-				html += '<li data-icon="'+icon+'"><a href="#" style="background:'+bgcolor+'">'+label+'</a></li>';
+				html += '<li data-icon="'+icon+'"><a href="#core-attributes" data-coreid="'+resp[i].id+'" style="background:'+bgcolor+'">'+label+'</a></li>';
 			}
 
 			html += '</ul></div>';
 
 			$('#list').html($(html).enhanceWithin());
+			updateOverviewLinks();
 
-			lastStatus = JSON.stringify(resp);
+			lastStatus = resp;
 		}
 
-		$('div[data-role="footer"] h4').html('Last updated @ '+(new Date()).toLocaleTimeString());
+		$('#overview h4').html('Last updated @ '+(new Date()).toLocaleTimeString());
 
 		window.setTimeout(updateStatuses, statusUpdateInterval);
+	});
+}
+
+
+function updateOverviewLinks() {
+	$('#overview').find('ul li a').each(function() {
+		$(this).click(function() {
+			loadOverview($(this).data('coreid'));
+
+		});
+	});
+}
+
+
+function loadOverview(core_id) {
+	show_load();
+
+	// Get the core data that we already have
+	var core_info = {};
+
+	for(var i in lastStatus)
+		if(lastStatus[i].id==core_id)
+			core_info = lastStatus[i];
+
+	$('#core-attributes h1').html(core_info.name);
+
+
+	var footer_html = '';
+	if(core_info.last_heard!=null) {
+		d = new Date(core_info.last_heard);
+		footer_html = 'Last seen '+d.toRelativeTime().toLowerCase();
+	}
+
+	$('#attr-footer h4').html(footer_html);
+
+	// Fetch the core attributes
+	$.get('/v1/devices/'+core_id, function(resp) {
+		var html = '';
+		var filter = '';
+
+
+		// General info
+		$('#attr-core_name').text(resp.name);
+		$('#attr-core_id').text(resp.id);
+
+		if(resp.connected==true)
+			$('#attr-core_connected').text('Yes');
+		else
+			$('#attr-core_connected').text('No');
+
+
+		// Variables
+		filter = 'false';
+		if(resp.variables.count>5)
+			filter = 'true';
+
+		html = '<div><ul data-role="listview" data-filter="'+filter+'" data-inset="true">';
+
+		for(var i in resp.variables) {
+			html += '<li><a href="#attr-variable-popup" data-rel="popup" data-variable="'+i+'"> '+i+'<p class="ui-aside">'+resp.variables[i]+'</p></a></li>';
+		}
+
+		html += '</ul></div>';
+
+		$('#attr-variables').html($(html).enhanceWithin());
+
+		variablePopups(core_id);
+
+
+		// Functions
+		filter = 'false';
+		if(resp.functions.count>5)
+			filter = 'true';
+
+		html = '<div><ul data-role="listview" data-filter="'+filter+'" data-inset="true">';
+
+		for(var i in resp.functions) {
+			html += '<li><a href="#attr-function-popup" data-rel="popup" data-function="'+resp.functions[i]+'">'+resp.functions[i]+'</a></li>';
+		}
+
+		html += '</ul></div>';
+
+		$('#attr-functions').html($(html).enhanceWithin());
+
+		functionPopups(core_id);
+
+		hide_load();	
+	});
+}
+
+
+function variablePopups(core_id) {
+	$('#attr-variables ul li a').each(function() {
+		$(this).click(function(e) {
+			e.preventDefault();
+
+			$.get('/v1/devices/'+core_id+'/'+$(this).data('variable'), function(resp) {
+				$('#attr-variable-popup h1').html(resp.name);
+				$('#attr-variable-popup div.ui-content').html('<pre>'+FormatJSON(resp)+'</pre>');
+				$('#attr-variable-popup').popup('open');
+			});
+		});
+	});
+}
+
+
+function functionPopups(core_id) {
+	$('#attr-functions ul li a').each(function() {
+		$(this).click(function(e) {
+			e.preventDefault();
+
+			var args = prompt('Please enter the function argument(s):');
+			lastFunctionInfo = {
+				name: $(this).text(),
+				"args": args
+			};
+
+			$.post('/v1/devices/'+core_id+'/'+$(this).data('function'), {"args":args}, function(resp) {
+				$('#attr-function-popup h1').html(lastFunctionInfo.name);
+				$('#attr-function-popup div.ui-content').html('<p>Argument(s): '+lastFunctionInfo.args+'</p><pre>'+FormatJSON(resp)+'</pre>');
+				$('#attr-function-popup').popup('open');
+			});
+		});
 	});
 }
 
@@ -92,7 +223,7 @@ function hide_load() {
 </head>
 <body>
 
-<div data-role="page" data-theme="b">
+<div data-role="page" data-theme="b" id="overview">
 	<!-- Header -->
 	<div data-role="header" data-position="fixed">
 		<h1>Control Panel</h1>
@@ -104,8 +235,7 @@ function hide_load() {
 	<!-- Main content body -->
 	<div role="main" class="ui-content">
 
-		<!-- Relay buttons -->
-		<!-- <button id="outlet2" data-outlet="2">Deck Lights</button> -->
+		<h3>Cores</h3>
 
 		<div id="list">
 			<ul data-role="listview" data-filter="false" data-inset="true">
@@ -117,6 +247,82 @@ function hide_load() {
 
 	<!-- Footer -->
 	<div data-role="footer" data-position="fixed"><h4>...</h4></div>
+</div>
+
+
+<div data-role="page" data-theme="b" id="core-attributes">
+	<!-- Header -->
+	<div data-role="header" data-position="fixed" data-add-back-btn="true">
+		<h1>...</h1>
+	</div>
+
+	<!-- Main content body -->
+	<div role="main" class="ui-content">
+		<!-- General core info -->
+		<h3>General Information</h3>
+		<ul data-role="listview" data-inset="true">
+			<!-- Core Name -->
+			<li class="ui-field-contain">
+				<div class="ui-grid-a">
+					<div class="ui-block-a">Name:</div>
+					<div class="ui-block-b" id="attr-core_name"></div>
+				</div>
+			</li>
+			<!-- Core ID -->
+			<li class="ui-field-contain">
+				<div class="ui-grid-a">
+					<div class="ui-block-a">ID:</div>
+					<div class="ui-block-b" id="attr-core_id"></div>
+				</div>
+			</li>
+			<!-- Core connected -->
+			<li class="ui-field-contain">
+				<div class="ui-grid-a">
+					<div class="ui-block-a">Connected?</div>
+					<div class="ui-block-b" id="attr-core_connected"></div>
+				</div>
+			</li>
+		</ul>
+
+
+		<!-- Variables -->
+		<h3>Variables</h3>
+		<div id="attr-variables"></div>
+
+
+		<!-- Variable Pop-up -->
+		<div data-role="popup" id="attr-variable-popup" class="ui-content" data-overlay-theme="b" data-theme="a" data-dismissable="false" style="padding:0">
+			<div data-role="header" data-theme="b"><h1></h1></div>
+
+			<div data-role="main" class="ui-content" data-theme="a" style="overflow:auto"></div>
+
+			<div data-role="footer" data-theme="b" id="attr-variable-footer">
+				<button class="ui-btn ui-shadow ui-corner-all ui-btn-icon-left ui-icon-delete ui-btn-inline" onclick="$('#attr-variable-popup').popup('close')">Close</button>
+			</div>
+		</div>
+
+
+		<!-- Functions -->
+		<h3>Functions</h3>
+		<div id="attr-functions"></div>
+
+
+		<!-- Function Pop-up -->
+		<div data-role="popup" id="attr-function-popup" class="ui-content" data-overlay-theme="b" data-theme="a" data-dismissable="false" style="padding:0">
+			<div data-role="header" data-theme="b"><h1></h1></div>
+
+			<div data-role="main" class="ui-content" data-theme="a" style="overflow:auto"></div>
+
+			<div data-role="footer" data-theme="b" id="attr-variable-footer">
+				<button class="ui-btn ui-shadow ui-corner-all ui-btn-icon-left ui-icon-delete ui-btn-inline" onclick="$('#attr-function-popup').popup('close')">Close</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Footer -->
+	<div data-role="footer" data-position="fixed" id="attr-footer">
+		<h4>...</h4>
+	</div>
 </div>
 
 </body>
