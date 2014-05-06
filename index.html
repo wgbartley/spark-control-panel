@@ -20,17 +20,35 @@
 var statusUpdateInterval = 15000;
 var lastStatus = {};
 var lastFunctionInfo = {};
+var API_URL = 'https://api.spark.io';
+var ACCESS_TOKEN = '';
 
 // jQuery mobile page init
 $(document).on('pagecreate', function() {
 	show_load();
 
-	updateStatuses();
+
+	// Redirect to settings if access_token is missing
+	if(localStorage.access_token==undefined)
+		$.mobile.navigate('#settings');
+	else {
+		ACCESS_TOKEN = localStorage.access_token;
+
+		// Auto-append access_token header to Ajax requests
+		$.ajaxSetup({
+			headers: {
+				Authorization: 'Bearer '+ACCESS_TOKEN
+			}
+		});
+
+		// Kick off the function to populate everything
+		updateStatuses();
+	}
 });
 
 
 function updateStatuses() {
-	$.get('/v1/devices', function(resp) {
+	$.get(API_URL+'/v1/devices', function(resp) {
 		hide_load();
 
 		var filter = 'false';
@@ -73,7 +91,7 @@ function updateStatuses() {
 			lastStatus = resp;
 		}
 
-		$('#overview h4').html('Last updated @ '+(new Date()).toLocaleTimeString());
+		$('#home h4').html('Last updated @ '+(new Date()).toLocaleTimeString());
 
 		window.setTimeout(updateStatuses, statusUpdateInterval);
 	});
@@ -81,7 +99,7 @@ function updateStatuses() {
 
 
 function updateOverviewLinks() {
-	$('#overview').find('ul li a').each(function() {
+	$('#home').find('ul li a').each(function() {
 		$(this).click(function() {
 			loadOverview($(this).data('coreid'));
 
@@ -112,7 +130,7 @@ function loadOverview(core_id) {
 	$('#attr-footer h4').html(footer_html);
 
 	// Fetch the core attributes
-	$.get('/v1/devices/'+core_id, function(resp) {
+	$.get(API_URL+'/v1/devices/'+core_id, function(resp) {
 		var html = '';
 		var filter = '';
 
@@ -172,7 +190,7 @@ function variablePopups(core_id) {
 		$(this).click(function(e) {
 			e.preventDefault();
 
-			$.get('/v1/devices/'+core_id+'/'+$(this).data('variable'), function(resp) {
+			$.get(API_URL+'/v1/devices/'+core_id+'/'+$(this).data('variable'), function(resp) {
 				$('#attr-variable-popup h1').html(resp.name);
 				$('#attr-variable-popup div.ui-content').html('<pre>'+FormatJSON(resp)+'</pre>');
 				$('#attr-variable-popup').popup('open');
@@ -193,7 +211,7 @@ function functionPopups(core_id) {
 				"args": args
 			};
 
-			$.post('/v1/devices/'+core_id+'/'+$(this).data('function'), {"args":args}, function(resp) {
+			$.post(API_URL+'/v1/devices/'+core_id+'/'+$(this).data('function'), {"args":args}, function(resp) {
 				$('#attr-function-popup h1').html(lastFunctionInfo.name);
 				$('#attr-function-popup div.ui-content').html('<p>Argument(s): '+lastFunctionInfo.args+'</p><pre>'+FormatJSON(resp)+'</pre>');
 				$('#attr-function-popup').popup('open');
@@ -223,9 +241,12 @@ function hide_load() {
 </head>
 <body>
 
-<div data-role="page" data-theme="b" id="overview">
+<div data-role="page" data-theme="b" id="home">
 	<!-- Header -->
 	<div data-role="header" data-position="fixed">
+		<!-- Settings Button -->
+		<button class="ui-btn-left ui-btn ui-btn-b ui-btn-inline ui-mini ui-corner-all ui-btn-icon-left ui-icon-gear ui-btn-icon-notext" onclick="$.mobile.navigate('#settings')"></button>
+
 		<h1>Control Panel</h1>
 
 		<!-- Refresh button -->
@@ -242,6 +263,90 @@ function hide_load() {
 				<li>Loading . . .</li>
 			</ul>
 		</div>
+
+	</div>
+
+	<!-- Footer -->
+	<div data-role="footer" data-position="fixed"><h4>...</h4></div>
+</div>
+
+
+<script type="text/javascript">
+$(document).on('pagecreate', function() {
+	// Auto-populate e-mail address and access token
+	if(localStorage.email!=undefined)
+		$('#username').val(localStorage.username);
+
+	if(localStorage.access_token!=undefined)
+		$('#access_token').val(localStorage.access_token);
+
+	$('#login').click(function(e) {
+		e.preventDefault();
+
+		$.post(API_URL+'/oauth/token', {
+			username: $('#username').val(),
+			password: $('#password').val(),
+			grant_type: 'password',
+			client_id: 'DEADBEEF',
+			client_secret: 'spark_core_mobile_control_panel'
+		}, function(resp) {
+			if(resp.access_token!=undefined) {
+				localStorage.access_token = resp.access_token;
+				localStorage.username = $('#username').val();
+
+				$('#access_token').val(localStorage.access_token);
+
+				$.mobile.navigate('#home');
+			}
+		});
+	});
+
+
+	$('#logout').click(function(e) {
+		e.preventDefault();
+
+		localStorage.removeItem('access_token');
+		localStorage.removeItem('username');
+
+		window.location.reload();
+	});
+});
+</script>
+
+<div data-role="page" data-theme="b" id="settings">
+	<!-- Header -->
+	<div data-role="header" data-position="fixed">
+		<button class="ui-btn-left ui-btn ui-btn-b ui-btn-inline ui-mini ui-corner-all ui-btn-icon-left ui-icon-back ui-btn-icon-notext" onclick="$.mobile.navigate('#home')"></button>
+
+		<h1>Settings</h1>
+
+		<!-- Log out button -->
+		<button class="ui-btn-right ui-btn ui-btn-b ui-btn-inline ui-mini ui-corner-all ui-btn-icon-right ui-icon-user" id="logout">Log Out</button>
+	</div>
+
+	<!-- Main content body -->
+	<div role="main" class="ui-content">
+
+		<h3>E-mail Address and Password</h3>
+
+		<form>
+			<input type="email" id="username" placeholder="E-mail Address">
+			<input type="password" id="password" placeholder="Password">
+			<button id="login">Log In</button>
+		</form>
+
+		<h3>Access Token</h3>
+
+		<form>
+			<input type="text" id="access_token" placeholder="Access Token">
+			<button id="update_access_token">Update</button>
+		</form>
+
+		<!-- <div id="list">
+			<ul data-role="listview" data-filter="false" data-inset="true">
+				<li>Loading . . .</li>
+			</ul>
+		</div> -->
 
 	</div>
 
